@@ -19,7 +19,6 @@ namespace server2.Controllers
         }
 
         // Index action to list all blog posts
-        [HttpGet]
         public async Task<IActionResult> Index()
         {
             try
@@ -27,8 +26,6 @@ namespace server2.Controllers
                 var firebaseResponse = await _firebaseClient
                     .Child("BlogPosts")
                     .OnceAsync<BlogPost>();
-
-                Console.WriteLine($"Number of blog posts fetched: {firebaseResponse.Count}");
 
                 var blogPosts = firebaseResponse
                     .Where(item => item.Object != null)  // Skip null entries
@@ -41,50 +38,81 @@ namespace server2.Controllers
                     })
                     .ToList();
 
-                Console.WriteLine($"Blog posts: {Newtonsoft.Json.JsonConvert.SerializeObject(blogPosts)}");
-
-                return Ok(blogPosts);  // Return the blog posts as JSON
+                return View(blogPosts);
             }
             catch (Exception ex)
             {
                 Console.WriteLine("Error fetching blog posts from Firebase: " + ex.Message);
-                return StatusCode(500, "Error fetching blog posts");
+                return View(new List<BlogPost>()); // Return an empty list in case of error
             }
         }
 
-        // Create (POST) - API endpoint for React
+        // Create (GET)
+        [HttpGet]
+        public IActionResult Create()
+        {
+            return View();
+        }
+
+        // Create (POST)
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] BlogPost blogPost)
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Create(BlogPost blogPost)
         {
             if (!ModelState.IsValid)
             {
-                Console.WriteLine("Model state is invalid");
-                return BadRequest(ModelState);
+                return View(blogPost);
             }
 
             try
             {
+                // Firebase will automatically generate a unique key (Id) for each blog post
                 var postRef = await _firebaseClient
                     .Child("BlogPosts")
-                    .PostAsync(blogPost);
+                    .PostAsync(blogPost); // Let Firebase generate the unique key
 
+                // Assign the Firebase-generated key to the blog post's Id
                 blogPost.Id = postRef.Key;
 
-                Console.WriteLine($"Blog post created with ID: {blogPost.Id}");
-
-                return Ok(blogPost);  // Return the created blog post as JSON
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
                 Console.WriteLine("Error creating blog post: " + ex.Message);
-                return StatusCode(500, "Error creating blog post");
+                return View(blogPost);  // Return to the Create view in case of an error
             }
         }
 
-        // Edit (PUT)
-        // Edit (PUT)
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Edit(string id, [FromBody] BlogPost blogPost)
+        // GET: /Blog/Edit/id
+        [HttpGet]
+        public async Task<IActionResult> Edit(string id)
+        {
+            try
+            {
+                var blogPost = await _firebaseClient
+                    .Child("BlogPosts")
+                    .Child(id)
+                    .OnceSingleAsync<BlogPost>();
+
+                if (blogPost == null)
+                {
+                    return NotFound();
+                }
+
+                blogPost.Id = id; // Set the ID for use in the Edit form
+                return View(blogPost);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error fetching blog post for editing: " + ex.Message);
+                return RedirectToAction(nameof(Index)); // Redirect to index if there’s an error
+            }
+        }
+
+        // Edit (POST)
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(string id, BlogPost blogPost)
         {
             if (id != blogPost.Id || !ModelState.IsValid)
             {
@@ -98,23 +126,61 @@ namespace server2.Controllers
                     .Child(id)
                     .PutAsync(blogPost);
 
-                return Ok(blogPost);
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
                 Console.WriteLine("Error updating blog post: " + ex.Message);
-                return StatusCode(500, "Error updating blog post");
+                return View(blogPost);  // Return to the Edit view in case of an error
             }
         }
 
-        // Delete (DELETE)
-        [HttpDelete("{id}")]
+        // Delete (GET)
+        [HttpGet]
+public async Task<IActionResult> Delete(string id)
+{
+    if (string.IsNullOrEmpty(id))
+    {
+        return BadRequest("Invalid ID.");
+    }
+
+    try
+    {
+        var blogPost = await _firebaseClient
+            .Child("BlogPosts")
+            .Child(id)
+            .OnceSingleAsync<BlogPost>();
+
+        if (blogPost == null)
+        {
+            return NotFound();
+        }
+
+        // Pass the ID along with the blogPost object to the view
+        blogPost.Id = id;  // Set the ID here if it's not already set
+        return View(blogPost);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("Error fetching blog post for deletion: " + ex.Message);
+        return RedirectToAction(nameof(Index));  // Redirect to index in case of error
+    }
+}
+
+
+        // Delete (POST)
+        [HttpPost, ActionName("DeleteConfirmed")]
+        [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string id)
         {
             try
             {
+                // Log the ID to verify it is being passed correctly
+                Console.WriteLine($"Deleting blog post with ID: {id}");
+
                 if (string.IsNullOrEmpty(id))
                 {
+                    Console.WriteLine("ID is null or empty.");
                     return BadRequest("Invalid ID.");
                 }
 
@@ -125,21 +191,28 @@ namespace server2.Controllers
 
                 if (postToDelete == null)
                 {
+                    Console.WriteLine("Blog post not found.");
                     return NotFound();
                 }
 
+                // Proceed with deletion
                 await _firebaseClient
                     .Child("BlogPosts")
                     .Child(id)
                     .DeleteAsync();
 
-                return Ok("Blog post deleted.");
+                Console.WriteLine("Blog post successfully deleted.");
+
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
+                // Log the error for debugging
                 Console.WriteLine($"Error deleting blog post: {ex.Message}");
-                return StatusCode(500, "Error deleting blog post");
+                return RedirectToAction(nameof(Index));  // Redirect to index in case of an error
             }
         }
+
+
     }
 }
